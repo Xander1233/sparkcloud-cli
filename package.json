@@ -1,0 +1,31 @@
+{
+  "name": "sparkcloud-cli",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bin": {
+    "sparkcloud-deploy": "./dist/deploy/index.js",
+    "sparkcloud-init": "./dist/init/index.js",
+    "sparkcloud": "./dist/all/index.js"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.19",
+    "@types/graceful-fs": "^4.1.6",
+    "@types/node": "^20.4.8",
+    "@types/node-fetch": "^2.6.4",
+    "@types/write-file-atomic": "^4.0.0"
+  },
+  "dependencies": {
+    "@xandrrrr/prompt-kit": "^2.0.4",
+    "dockerode": "^3.3.5",
+    "graceful-fs": "^4.2.11",
+    "node-fetch": "^2.6.1",
+    "write-file-atomic": "^5.0.1"
+  }
+}
