@@ -1,84 +1,94 @@
-#!/usr/bin/env node
+import * as clc from "colorette";
 
-import { Debuglog } from "../debuglogs";
-import { getConfig } from "../util/config";
-import { execSync } from "child_process";
-import Docker from "dockerode";
-import { buildImage, pushImage } from "./docker";
-import { getServiceAccount } from "../util/serviceAccount";
-import { getRemoteConfig } from "../util/getRemoteConfig";
-import { loadFunctions } from "./getFunctions";
-import { Predeploy } from "./Predeploy";
-import { getFunctionsCatalog } from "./SparkcloudBackend/getFunctionsCatalog";
-import { initializeDockerClient } from "./docker/initializeDockerClient";
-import { updateFunctions } from "./SparkcloudBackend/updateFunctions";
+import { logger } from "../logger";
+import { SparkCloudError } from "../error";
+import { consoleUrl, logBullet, logLabeledBullet, logSuccess } from "../utils";
+import { lifecycleHooks } from "./lifecycleHooks";
 
-(async () => {
+import * as functions from "./functions";
 
-	await Debuglog.instance.log("Starting deployment.");
+const TARGETS = {
+	functions
+};
 
-	await Debuglog.instance.debug("Loading config.");
-	const config = await getConfig();
-	await Debuglog.instance.debug("Config loaded.");
+type Chain = ((context: any, options: any, payload: any) => Promise<unknown>)[];
 
-	await Debuglog.instance.debug("Loading service account.");
-	const serviceAccount = await getServiceAccount();
-	await Debuglog.instance.debug("Service account loaded.");
+const chain = async function (fns: Chain, context: any, options: any, payload: any): Promise<void> {
+	for (const latest of fns) {
+		await latest(context, options, payload);
+	}
+};
 
-	await Debuglog.instance.log("Deploying functions of project " + config.project.name + ".");
+export async function deploy(targetNames: (keyof typeof TARGETS)[], options: any) {
+	
+	const predeploy: Chain = [];
+	const prepares: Chain = [];
+	const deploys: Chain = [];
+	const releases: Chain = [];
+	const postdeploy: Chain = [];
 
-	if (config.functions.predeploy && config.functions.predeploy.length > 0) {
-		await Debuglog.instance.log("Executing predeploy commands (Count: " + config.functions.predeploy.length + ").");
-		await Predeploy(config.functions.predeploy, config);
+	const context: any = {};
+
+	const startTime = Date.now();
+
+	for (const targetName of targetNames) {
+		const target = TARGETS[targetName];
+
+		if (!target) {
+			return Promise.reject(new SparkCloudError(`${targetName} is not a valid deploy target`));
+		}
+
+		predeploy.push(lifecycleHooks(targetName, 'predeploy'));
+		prepares.push(target.prepare);
+		deploys.push(target.deploy);
+		// releases.push(target.release);
+		postdeploy.push(lifecycleHooks(targetName, 'postdeploy'));
 	}
 
-	await Debuglog.instance.log("Deploying functions of project " + config.project.name + ".");
+	logger.info();
+	logger.info(`${clc.bold(clc.white('=== ') + "Deploying to '" + options.projectId + "'...")}`);
+	logger.info();
 
-	/*await Debuglog.instance.debug("Loading remote config.");
-	const remoteConfig = await getRemoteConfig(serviceAccount);
-	const deployUrl = `${remoteConfig.deploy.host}/`;
-	await Debuglog.instance.debug("Remote config loaded.");
+	logBullet("deploying " + clc.bold(targetNames.join(", ")));
 
-	const functionConfigs = await loadFunctions(config.functions.source + "/dist/index.js");
+	logger.debug("Starting predeploy step(s)...");
+	await chain(predeploy, context, options, {});
+	const predeployDuration = Date.now() - startTime;
+	logger.debug("Predeploy took " + clc.bold(predeployDuration + "ms"));
 
-	const functionsCatalog = await getFunctionsCatalog(serviceAccount);
+	logger.debug("Starting preparation step(s)...");
+	await chain(prepares, context, options, {});
+	const prepareDuration = Date.now() - startTime;
+	logger.debug("Preparation took " + clc.bold(prepareDuration + "ms"));
 
-	const functionUpdates = await updateFunctions(serviceAccount, functionConfigs, functionsCatalog);
+	if (context.endpoints) {
+		logger.debug("Deploying " + clc.bold(targetNames.join(", ")));
+		await chain(deploys, context, options, {});
+		const deployDuration = Date.now() - startTime;
+		logger.debug("Deployment took " + clc.bold(deployDuration + "ms"));
 
-	if (functionUpdates.filter((update) => !update.success).length > 0) {
-		await Debuglog.instance.log("Some functions failed to update.");
-		process.exit(1);
-	}*/
+		logger.debug("Starting release step(s)...");
+		await chain(releases, context, options, {});
+		const releaseDuration = Date.now() - startTime;
+		logger.debug("Release took " + clc.bold(releaseDuration + "ms"));
+	} else {
+		logLabeledBullet("functions", "no functions found to deploy");
+	}
 
-	const docker = await initializeDockerClient();
-	await buildImage(docker, {
-		context: config.functions.source,
-		src: ['package.json', 'package-lock.json', 'dist']
-	}, {
-		t: `registry.xndr.tech/sparkcloud/${config.project.name}:latest`,
-		platform: 'linux/amd64',
-		remote: 'http://localhost:3002/deploy/config/dockerfile'
-	});
-	await pushImage(docker, `registry.xndr.tech/sparkcloud/${config.project.name}:latest`, {
-		deploy: {
-			host: 'registry.xndr.tech',
-			port: 443,
-			auth: {
-				username: 'sparkcloud',
-				password: 'TestPass'
-			}
-		},
-		auth: {
-			host: 'registry.xndr.tech',
-			port: 443,
-			auth: {
-				username: 'xndr',
-				password: 'xndr'
-			}
-		}
-	});
+	logger.debug("Starting postdeploy step(s)...");
+	await chain(postdeploy, context, options, {});
+	const postdeployDuration = Date.now() - startTime;
+	logger.debug("Postdeploy took " + clc.bold(postdeployDuration + "ms"));
 
-	await Debuglog.instance.log("Functions deployed successfully.");
+	const duration = Date.now() - startTime;
+	logger.debug("Deploying took " + clc.bold(duration + "ms"));
 
-	process.exit(0);
-})();
+	logger.info();
+	logSuccess(clc.bold(clc.underline("Deployment complete!")));
+	logger.info();
+
+	const url = consoleUrl(options.projectId, '/overview');
+	logger.info(clc.bold('Project Console: ') + url);
+
+	return {};
+}

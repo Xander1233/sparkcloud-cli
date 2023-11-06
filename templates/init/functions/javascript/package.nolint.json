@@ -1,0 +1,15 @@
+{
+	"name": "functions",
+	"description": "Cloud Functions for SparkCloud",
+	"scripts": {
+	  "deploy": "sparkcloud deploy --only functions"
+	},
+	"engines": {
+	  "node": "18"
+	},
+	"main": "index.js",
+	"dependencies": {
+	  "sparkcloud-sdk": "latest"
+	},
+	"private": true
+}

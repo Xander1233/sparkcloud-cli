@@ -1,73 +1,45 @@
-#!/usr/bin/env node
+import * as clc from 'colorette';
+import { SparkCloudError } from '../error';
+import * as features from './features';
+import { logger } from '../logger';
+import { capitalize } from 'lodash';
 
-import { Debuglog } from "../debuglogs";
-import { PickerBuilder, PromptBuilder, Terminal, Text } from '@xandrrrr/prompt-kit';
-import { fetchAllProjects } from "./SparkcloudBackend/fetchAllProjects";
-import { initializeExistingProject } from "./initializeExistingProject";
-import fetch from "node-fetch";
-import { checkLogins } from "../all/auth/checkLogin";
-import { login } from "../all/auth/login";
-
-(async () => {
-
-	let loginCheck = await checkLogins();
-
-	let token = loginCheck?.token;
-	let uid = loginCheck?.uid;
-
-	if (!loginCheck) {
-		const loginRes = await login();
-		token = loginRes.token;
-		uid = loginRes.uid;
-	}
-	
-	await Debuglog.instance.log("Logged in to SparkCloud.");
-
-	const projects = await fetchAllProjects(token);
-
-	const projectPrompt = await new PickerBuilder()
-		.setOptions([ ...projects.map((project: any) => {
-			return {
-				option: project.name,
-				value: project.id
-			};
-		}), { option: 'Create a new project', value: 'new' }])
-		.setPrompt("Select a project:")
-		.build();
-
-	if (projectPrompt.value !== 'new') {
-		await initializeExistingProject(token, projectPrompt.value);
-	}
-
-	const projectNamePrompt = await new PromptBuilder()
-		.setMessage("Enter a name for your project:")
-		.prompt();
-
-	const projectDescriptionPrompt = await new PromptBuilder()
-		.setMessage("Enter a description for your project:")
-		.prompt();
-
-	const project = {
-		name: projectNamePrompt,
-		description: projectDescriptionPrompt
+export interface Setup {
+	config: Record<string, any>;
+	rcfile: {
+		projects: Record<string, any>;
 	};
+	features?: string[];
+	project?: Record<string, any>;
+	projectId?: string;
+	projectLocation?: string;
+}
 
-	const result = await fetch("http://127.0.0.1:3005/projects", {
-		method: 'POST',
-		headers: {
-			'Authorization': 'Bearer ' + token,
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify(project)
-	});
+const featureFunctions = new Map<string, (setup: any, config: any, options?: any) => Promise<unknown>>([
+	["project", features.project],
+	["functions", features.functions]
+]);
 
+export async function init(setup: Setup, config: any, options: any) {
+	const nextFeature = setup.features?.shift();
 
-	if (result.status !== 200) {
-		console.error(`Could not create project.`);
-		process.exit(1);
+	if (!nextFeature) {
+		return;
 	}
 
-	const { id } = await result.json();
+	if (!featureFunctions.has(nextFeature)) {
+		const availableFeatures = Object.keys(features).filter((v) => v !== 'project').join(', ');
+		throw new SparkCloudError(`Feature ${clc.bold(nextFeature)} not found. Available features are: ${availableFeatures}`);
+	}
 
-	await initializeExistingProject(token, id);
-})();
+	logger.info(clc.bold(`\n${clc.white(' === ')}${capitalize(nextFeature)} setup`));
+
+	const fn = featureFunctions.get(nextFeature);
+
+	if (!fn) {
+		throw new SparkCloudError(`We've lost the function to init ${nextFeature}!`, { exit: 2 });
+	}
+
+	await fn(setup, config, options);
+	return init(setup, config, options);
+}
