@@ -1,0 +1,26 @@
+{
+	"name": "functions",
+	"scripts": {
+	  "lint": "eslint --ext .js,.ts .",
+	  "build": "npm run build:clear && tsc",
+	  "build:clear": "rm -rf lib",
+	  "build:watch": "tsc --watch",
+	  "deploy": "sparkcloud deploy --only functions"
+	},
+	"engines": {
+	  "node": "18"
+	},
+	"main": "lib/index.js",
+	"dependencies": {
+	  "sparkcloud-sdk": "latest"
+	},
+	"devDependencies": {
+	  "@typescript-eslint/eslint-plugin": "^5.12.0",
+	  "@typescript-eslint/parser": "^5.12.0",
+	  "eslint": "^8.9.0",
+	  "eslint-config-google": "^0.14.0",
+	  "eslint-plugin-import": "^2.25.4",
+	  "typescript": "^4.9.0"
+	},
+	"private": true
+}

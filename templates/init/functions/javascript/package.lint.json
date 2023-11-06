@@ -1,0 +1,20 @@
+{
+	"name": "functions",
+	"description": "Cloud Functions for SparkCloud",
+	"scripts": {
+	  "lint": "eslint .",
+	  "deploy": "sparkcloud deploy --only functions"
+	},
+	"engines": {
+	  "node": "18"
+	},
+	"main": "index.js",
+	"dependencies": {
+	  "sparkcloud-sdk": "latest"
+	},
+	"devDependencies": {
+	  "eslint": "^8.15.0",
+	  "eslint-config-google": "^0.14.0"
+	},
+	"private": true
+}
